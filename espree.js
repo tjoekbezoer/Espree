@@ -4,8 +4,8 @@ var fs = require('fs')
 
 var espree = {
 	// espree: espree
-	fileNames: [],
-	result: '',
+	fileNames: {},
+	result:    '',
 	
 	process: function( fileName, env, fromFile ) {
 		fileName = path.resolve(
@@ -18,7 +18,12 @@ var espree = {
 		  , js = '', match;
 		
 		// Add file name to list of processed files. Paths are relative to cwd.
-		espree.fileNames.push(path.relative(process.cwd(), fileName));
+		// espree.fileNames.push(path.relative(process.cwd(), fileName));
+		var normalized = path.relative(process.cwd(), fileName);
+		if( normalized in espree.fileNames ) {
+			throw Error('Already included '+normalized);
+		}
+		espree.fileNames[normalized] = true;
 		
 		// Transform code; all normal JavaScript code becomes print('code'), all
 		// the preprocess statements become normal JavaScript.
@@ -29,8 +34,10 @@ var espree = {
 			}
 			if( match[1] ) {
 				js += 'print(\'' +
-					    match[1].replace(/'/g, '\\\'')
+					    match[1].replace(/\\/g, '\\\\')
+					            .replace(/'/g, '\\\'')
 					            .replace(/\n/g, '\\n') +
+					            // .replace(/(['\n])/g, '\\$1') +
 					    '\');\n';
 			}
 		}
@@ -38,23 +45,29 @@ var espree = {
 		// Execute transformed JavaScript. Two functions (include and print) are
 		// passed as arguments, providing the preprocess statements with essential
 		// functionality.
+		var result = '';
 		Function(
 			'include, print',
 			espree._parseEnv(env)+js
 		)(
-			function(newFile) { espree.result += espree.process(newFile, env, fileName) },
-			function(txt) {     espree.result += txt }
+			function(newFile) { result += espree.process(newFile, env, fileName) },
+			function(txt) {     result += txt }
 		);
 		
-		return espree.result;
+		if( !fromFile ) {
+			espree.result += result;
+		}
+		return result;
 	},
 	reset: function() {
-		espree.fileNames = [];
+		var result = espree.result;
+		espree.fileNames = {};
 		espree.result = '';
+		return result;
 	},
 	
 	_parseEnv: function( env ) {
-		if( !(env instanceof Object) ) {
+		if( !env ) {
 			return '';
 		}
 		

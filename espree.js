@@ -3,41 +3,42 @@ var fs = require('fs')
   , path = require('path');
 
 var espree = {
-	// espree: espree
-	fileNames: {},
-	result:    '',
+	result:     '',
+	_fileNames: {},
 	
-	process: function( fileName, env, fromFile ) {
+	fileNames: function() {
+		return Object.keys(espree._fileNames);
+	},
+	process: function( fileName, env, fileExt, fromFile ) {
 		fileName = path.resolve(
 			fromFile ? path.dirname(fromFile) : process.cwd(),
 			fileName
 		);
+		fileExt || (fileExt = path.extname(fileName).substr(1));
 		
 		var file = fs.readFileSync(fileName, 'utf8')
-		  , regex = /(?:(\/\*@[\s\S]+?\*\/)|^)([\s\S]*?)(?=\/\*@|$)/gi
+		  , normalized = path.relative(process.cwd(), fileName)
+		  // Depending on the filetype, the preprocess comment format can differ.
+		  , regex = this._regExes(fileExt)
 		  , js = '', match;
 		
 		// Add file name to list of processed files. Paths are relative to cwd.
-		// espree.fileNames.push(path.relative(process.cwd(), fileName));
-		var normalized = path.relative(process.cwd(), fileName);
-		if( normalized in espree.fileNames ) {
+		if( normalized in espree._fileNames ) {
 			throw Error('Already included '+normalized);
 		}
-		espree.fileNames[normalized] = true;
+		espree._fileNames[normalized] = true;
 		
 		// Transform code; all normal JavaScript code becomes print('code'), all
 		// the preprocess statements become normal JavaScript.
-		while( match = regex.exec(file) ) {
+		while( match = regex.search.exec(file) ) {
 			match = match.slice(1);
 			if( match[0] ) {
-				js += match[0].replace(/\/\*@\s*(.*?)\s*\*\//, '$1\n');
+				js += match[0].replace(regex.replace, '$1\n');
 			}
 			if( match[1] ) {
 				js += 'print(\'' +
-					    match[1].replace(/\\/g, '\\\\')
-					            .replace(/'/g, '\\\'')
-					            .replace(/\n/g, '\\n') +
-					            // .replace(/(['\n])/g, '\\$1') +
+					    match[1].replace(/(\\|')/g, '\\$1')
+					            .replace(/\r\n|\n|\r/g, '\\n') +
 					    '\');\n';
 			}
 		}
@@ -47,11 +48,12 @@ var espree = {
 		// functionality.
 		var result = '';
 		Function(
-			'include, print',
+			'include',
+			'print',
 			espree._parseEnv(env)+js
 		)(
-			function(newFile) { result += espree.process(newFile, env, fileName) },
-			function(txt) {     result += txt }
+			function (newFile) { result += espree.process(newFile, env, fileExt, fileName) },
+			function (txt)     { result += txt }
 		);
 		
 		if( !fromFile ) {
@@ -61,21 +63,38 @@ var espree = {
 	},
 	reset: function() {
 		var result = espree.result;
-		espree.fileNames = {};
+		espree._fileNames = {};
 		espree.result = '';
 		return result;
 	},
 	
 	_parseEnv: function( env ) {
-		if( !env ) {
-			return '';
-		}
+		if( !env ) return '';
 		
 		var result = '';
 		for( var name in env ) {
 			result += 'var '+name+' = '+JSON.stringify(env[name])+';\n';
 		}
 		return result;
+	},
+	_regExes: function( fileExt ) {
+		switch( fileExt ) {
+			case 'js':
+			case 'css':
+				// /*@ preprocess statement */
+				return {
+					search:  /(?:(\/\*@[\s\S]+?\*\/)|^)([\s\S]*?)(?=\/\*@|$)/gi,
+					replace: /\/\*@\s*(.*?)\s*\*\//
+				};
+			case 'html':
+			case 'php':
+			default:
+				// <!--@ preprocess statement -->
+				return {
+					search:  /(?:(<\!--@[\s\S]+?-->)|^)([\s\S]*?)(?=<\!--@|$)/gi,
+					replace: /<\!--@\s*(.*?)\s*-->/
+				};
+		}
 	}
 };
 module.exports = espree.espree = espree;

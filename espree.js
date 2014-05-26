@@ -9,56 +9,10 @@ var espree = {
 	fileNames: function() {
 		return Object.keys(espree._fileNames);
 	},
-	process: function( fileName, env, fileExt, fromFile ) {
-		fileName = path.resolve(
-			fromFile ? path.dirname(fromFile) : process.cwd(),
-			fileName
-		);
-		fileExt || (fileExt = path.extname(fileName).substr(1));
-		
-		var file = fs.readFileSync(fileName, 'utf8')
-		  , normalized = path.relative(process.cwd(), fileName)
-		  // Depending on the filetype, the preprocess comment format can differ.
-		  , regex = this._regExes(fileExt)
-		  , js = '', match;
-		
-		// Add file name to list of processed files. Paths are relative to cwd.
-		if( normalized in espree._fileNames ) {
-			throw Error('Already included '+normalized);
-		}
-		espree._fileNames[normalized] = true;
-		
-		// Transform code; all normal JavaScript code becomes print('code'), all
-		// the preprocess statements become normal JavaScript.
-		while( match = regex.search.exec(file) ) {
-			match = match.slice(1);
-			if( match[0] ) {
-				js += match[0].replace(regex.replace, '$1\n');
-			}
-			if( match[1] ) {
-				js += 'print(\'' +
-					    match[1].replace(/(\\|')/g, '\\$1')
-					            .replace(/\r\n|\n|\r/g, '\\n') +
-					    '\');\n';
-			}
-		}
-		
-		// Execute transformed JavaScript. Two functions (include and print) are
-		// passed as arguments, providing the preprocess statements with essential
-		// functionality.
-		var result = '';
-		Function(
-			'include',
-			'print',
-			espree._parseEnv(env)+js
-		)(
-			function (newFile) { result += espree.process(newFile, env, fileExt, fileName) },
-			function (txt)     { result += txt }
-		);
-		
-		if( !fromFile ) {
-			espree.result += result;
-		}
+	process: function( fileName, env, fileExt ) {
+		// Recursively retrieve preprocessed code.
+		var result = espree._include(fileName, env, fileExt);
+		espree.result += result;
 		return result;
 	},
 	reset: function() {
@@ -68,16 +22,64 @@ var espree = {
 		return result;
 	},
 	
-	_parseEnv: function( env ) {
-		if( !env ) return '';
+	// Get file data, parse and execute. Is used recursively via `_executeCode`
+	// where parameter `fromFile` will be empty only on the initial call.
+	_include: function( fileName, env, fileExt, fromFile ) {
+		fileName = path.resolve(
+			fromFile ? path.dirname(fromFile) : process.cwd(),
+			fileName
+		);
+		fileExt || (fileExt = path.extname(fileName).substr(1));
 		
-		var result = '';
-		for( var name in env ) {
-			result += 'var '+name+' = '+JSON.stringify(env[name])+';\n';
+		var file = fs.readFileSync(fileName, 'utf8')
+		  // Depending on the filetype, the preprocess comment format can differ.
+		  , code = this._parseCode(fileName, fileExt);
+		
+		this._testForCircularLoop(fileName);
+		return this._executeCode(fileName, fileExt, env, code);
+	},
+	// Transform code; all normal JavaScript code becomes print('code'), all
+	// preprocess statements become normal JavaScript.
+	_parseCode: function( fileName, fileExt ) {
+		var regex = this._getRegexesForFileType(fileExt)
+		  , data  = fs.readFileSync(fileName, 'utf8')
+		  , code  = '', match;
+		
+		while( match = regex.search.exec(data) ) {
+			match = match.slice(1);
+			if( match[0] ) {
+				code += match[0].replace(regex.replace, '$1\n');
+			}
+			if( match[1] ) {
+				code += 'print(\'' +
+					    match[1].replace(/(\\|')/g, '\\$1')
+					            .replace(/\r\n|\n|\r/g, '\\n') +
+					    '\');\n';
+			}
 		}
+		return code;
+	},
+	// Execute transformed JavaScript. Two functions (include and print) are
+	// passed as arguments, providing the preprocess statements with essential
+	// functionality. The environment variables are parsed and prepended to the
+	// to-run code as variables in the function's scope. See `_parseEnv`.
+	_executeCode: function( fileName, fileExt, env, code ) {
+		var result = '';
+		Function(
+			'include',
+			'print',
+			espree._parseEnv(env)+code
+		)(
+			function (newFile) { result += espree._include(newFile, env, fileExt, fileName) },
+			function (txt)     { result += txt }
+		);
 		return result;
 	},
-	_regExes: function( fileExt ) {
+	
+	// PHP files that need preprocessing are thought of as HTML files with some PHP
+	// sugar on top, instead of business logic with some HTML as output. The latter
+	// type of file should not be preprocessed in my opinion.
+	_getRegexesForFileType: function( fileExt ) {
 		switch( fileExt ) {
 			case 'js':
 			case 'css':
@@ -95,6 +97,35 @@ var espree = {
 					replace: /<\!--@\s*(.*?)\s*-->/
 				};
 		}
+	},
+	// Turn a JSON object into a string of JavaScript code with variable declarations,
+	// where the variable name is the object key, and its value is the object's value
+	// under that key.
+	// 
+	// For example this object:
+	//   var env = {"foo": "bar", "test": true};
+	// becomes:
+	//   var foo = "bar";
+	//   var test = true;
+	_parseEnv: function( env ) {
+		var result = '';
+		if( !env ) {
+			return result;
+		}
+		for( var name in env ) {
+			result += 'var '+name+' = '+JSON.stringify(env[name])+';\n';
+		}
+		return result;
+	},
+	// Add file name to list of processed files. Paths are relative to cwd.
+	// If file is already processed before, throw an error to prevent an endless
+	// loop.
+	_testForCircularLoop: function( fileName ) {
+		var normalized = path.relative(process.cwd(), fileName)
+		if( normalized in espree._fileNames ) {
+			throw Error('Already included '+normalized);
+		}
+		espree._fileNames[normalized] = true;
 	}
 };
 module.exports = espree.espree = espree;

@@ -75,10 +75,12 @@ var espree = {
 	_executeCode: function( fileName, fileExt, env, code ) {
 		var result = '';
 		Function(
-			'include',
-			'print',
-			espree._parseEnv(env)+code
+			'require', 'include', 'print',
+			'var _ = require("underscore");\n'+
+			espree._parseEnv(env)+
+			code
 		)(
+			require,
 			function (newFile, silent) {
 				result += espree._include(newFile, env, fileExt, fileName, {
 					silent: !!silent
@@ -101,7 +103,7 @@ var espree = {
 				// /*@ preprocess statement */
 				return {
 					search:  /(?:(\/\*@[\s\S]+?\*\/)|^)([\s\S]*?)(?=\/\*@|$)/gi,
-					replace: /\/\*@\s*(.*?)\s*\*\//
+					replace: /\/\*@\s*([\s\S]*?)\s*\*\//
 				};
 			case 'html':
 			case 'php':
@@ -109,7 +111,7 @@ var espree = {
 				// <!--@ preprocess statement -->
 				return {
 					search:  /(?:(<\!--@[\s\S]+?-->)|^)([\s\S]*?)(?=<\!--@|$)/gi,
-					replace: /<\!--@\s*(.*?)\s*-->/
+					replace: /<\!--@\s*([\s\S]*?)\s*-->/
 				};
 		}
 	},

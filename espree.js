@@ -24,39 +24,48 @@ var espree = {
 	
 	// Get file data, parse and execute. Is used recursively via `_executeCode`
 	// where parameter `fromFile` will be empty only on the initial call.
-	_include: function( fileName, env, fileExt, fromFile ) {
+	_include: function( fileName, env, fileExt, fromFile, options ) {
 		fileName = path.resolve(
 			fromFile ? path.dirname(fromFile) : process.cwd(),
 			fileName
 		);
 		fileExt || (fileExt = path.extname(fileName).substr(1));
+		options || (options = {});
 		
-		var file = fs.readFileSync(fileName, 'utf8')
-		  // Depending on the filetype, the preprocess comment format can differ.
-		  , code = this._parseCode(fileName, fileExt);
+		// Depending on the filetype, the preprocess comment format can differ.
+		var code = this._parseCode(fileName, fileExt, options);
 		
-		this._testForCircularLoop(fileName);
-		return this._executeCode(fileName, fileExt, env, code);
+		if( code.length ) {
+			this._testForCircularLoop(fileName);
+			return this._executeCode(fileName, fileExt, env, code);
+		} else {
+			return '';
+		}
 	},
 	// Transform code; all normal JavaScript code becomes print('code'), all
 	// preprocess statements become normal JavaScript.
-	_parseCode: function( fileName, fileExt ) {
+	_parseCode: function( fileName, fileExt, options ) {
 		var regex = this._getRegexesForFileType(fileExt)
-		  , data  = fs.readFileSync(fileName, 'utf8')
-		  , code  = '', match;
+		  , data, match, code = '';
 		
-		while( match = regex.search.exec(data) ) {
-			match = match.slice(1);
-			if( match[0] ) {
-				code += match[0].replace(regex.replace, '$1\n');
+		try {
+			data = fs.readFileSync(fileName, 'utf8');
+			while( match = regex.search.exec(data) ) {
+				match = match.slice(1);
+				if( match[0] ) {
+					code += match[0].replace(regex.replace, '$1\n');
+				}
+				if( match[1] ) {
+					code += 'print(\'' +
+						    match[1].replace(/(\\|')/g, '\\$1')
+						            .replace(/\r\n|\n|\r/g, '\\n') +
+						    '\');\n';
+				}
 			}
-			if( match[1] ) {
-				code += 'print(\'' +
-					    match[1].replace(/(\\|')/g, '\\$1')
-					            .replace(/\r\n|\n|\r/g, '\\n') +
-					    '\');\n';
-			}
+		} catch( e ) {
+			if( !options.silent ) throw e;
 		}
+		
 		return code;
 	},
 	// Execute transformed JavaScript. Two functions (include and print) are
@@ -70,8 +79,14 @@ var espree = {
 			'print',
 			espree._parseEnv(env)+code
 		)(
-			function (newFile) { result += espree._include(newFile, env, fileExt, fileName) },
-			function (txt)     { result += txt }
+			function (newFile, silent) {
+				result += espree._include(newFile, env, fileExt, fileName, {
+					silent: !!silent
+				});
+			},
+			function (txt) {
+				result += txt;
+			}
 		);
 		return result;
 	},

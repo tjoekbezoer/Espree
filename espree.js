@@ -5,26 +5,45 @@ var fs = require('fs')
 var espree = {
 	result:     '',
 	_fileNames: {},
+	_globals: {},
 	
+	addGlobal: function( name, value ) {
+		var obj = name;
+		obj instanceof Object || ((obj = {})[name] = value);
+		
+		for( name in obj ) {
+			value = obj[name];
+			switch( name ) {
+				case 'vars':
+				case 'include':
+				case 'print':
+					throw new Error('Cannot add reserved global: '+name);
+			}
+			this._globals[name] = value;
+		}
+	},
 	fileNames: function() {
 		return Object.keys(espree._fileNames);
 	},
-	process: function( fileName, env, fileExt ) {
+	process: function( fileName, vars, fileExt ) {
 		// Recursively retrieve preprocessed code.
-		var result = espree._include(fileName, env, fileExt);
+		var result = espree._include(fileName, vars, fileExt);
 		espree.result += result;
 		return result;
 	},
-	reset: function() {
+	reset: function( hard ) {
 		var result = espree.result;
-		espree._fileNames = {};
 		espree.result = '';
+		espree._fileNames = {};
+		if( hard ) {
+			espree._globals = {};
+		}
 		return result;
 	},
 	
 	// Get file data, parse and execute. Is used recursively via `_executeCode`
 	// where parameter `fromFile` will be empty only on the initial call.
-	_include: function( fileName, env, fileExt, fromFile, options ) {
+	_include: function( fileName, vars, fileExt, fromFile, options ) {
 		fileName = path.resolve(
 			fromFile ? path.dirname(fromFile) : process.cwd(),
 			fileName
@@ -37,7 +56,7 @@ var espree = {
 		
 		if( code.length ) {
 			this._testForCircularLoop(fileName);
-			return this._executeCode(fileName, fileExt, env, code);
+			return this._executeCode(fileName, fileExt, vars, code);
 		} else {
 			return '';
 		}
@@ -72,24 +91,29 @@ var espree = {
 	// passed as arguments, providing the preprocess statements with essential
 	// functionality. The environment variables are parsed and prepended to the
 	// to-run code as variables in the function's scope. See `_parseEnv`.
-	_executeCode: function( fileName, fileExt, env, code ) {
+	_executeCode: function( fileName, fileExt, vars, code ) {
 		var result = '';
+		// Create parameter names and values using the user-defined globals.
+		var params = Object.keys(this._globals);
+		var values = params.map(function( key ) {
+			return this._globals[key];
+		}, this);
+		// Add the reserved globals (needs to be done here since they depend on
+		// variables from within this function call).
 		Function(
-			'require', 'include', 'print',
-			'var _ = require("underscore");\n'+
-			espree._parseEnv(env)+
+			params.concat('vars', 'include', 'print').join(','),
 			code
-		)(
-			require,
-			function (newFile, silent) {
-				result += espree._include(newFile, env, fileExt, fileName, {
-					silent: !!silent
-				});
-			},
-			function (txt) {
-				result += txt;
-			}
-		);
+		).apply(null, values.concat(vars, include, print));
+		
+		function include(newFile, silent) {
+			result += espree._include(newFile, vars, fileExt, fileName, {
+				silent: !!silent
+			});
+		}
+		function print(txt) {
+			result += txt;
+		}
+		
 		return result;
 	},
 	
@@ -114,25 +138,6 @@ var espree = {
 					replace: /<\!--@\s*([\s\S]*?)\s*-->/
 				};
 		}
-	},
-	// Turn a JSON object into a string of JavaScript code with variable declarations,
-	// where the variable name is the object key, and its value is the object's value
-	// under that key.
-	// 
-	// For example this object:
-	//   var env = {"foo": "bar", "test": true};
-	// becomes:
-	//   var foo = "bar";
-	//   var test = true;
-	_parseEnv: function( env ) {
-		var result = '';
-		if( !env ) {
-			return result;
-		}
-		for( var name in env ) {
-			result += 'var '+name+' = '+JSON.stringify(env[name])+';\n';
-		}
-		return result;
 	},
 	// Add file name to list of processed files. Paths are relative to cwd.
 	// If file is already processed before, throw an error to prevent an endless

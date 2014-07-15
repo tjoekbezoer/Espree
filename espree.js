@@ -65,18 +65,20 @@ var espree = {
 	// preprocess statements become normal JavaScript.
 	_parseCode: function( fileName, fileExt, options ) {
 		var regex = this._getRegexesForFileType(fileExt)
-		  , data, match, code = '';
+		  , data, match, statement, code = '';
 		
 		try {
 			data = fs.readFileSync(fileName, 'utf8');
 			while( match = regex.search.exec(data) ) {
-				match = match.slice(1);
-				if( match[0] ) {
-					code += match[0].replace(regex.replace, '$1\n');
-				}
 				if( match[1] ) {
+					statement = match[1].replace(regex.replace, '$1');
+					code += match[2] ?
+					        'print('+statement+')\n' :
+					        statement+'\n';
+				}
+				if( match[3] ) {
 					code += 'print(\'' +
-						    match[1].replace(/(\\|')/g, '\\$1')
+						    match[3].replace(/(\\|')/g, '\\$1')
 						            .replace(/\r\n|\n|\r/g, '\\n') +
 						    '\');\n';
 				}
@@ -126,16 +128,16 @@ var espree = {
 			case 'css':
 				// /*@ preprocess statement */
 				return {
-					search:  /(?:(\/\*@[\s\S]+?\*\/)|^)([\s\S]*?)(?=\/\*@|$)/gi,
-					replace: /\/\*@\s*([\s\S]*?)\s*\*\//
+					search:  /(?:(\/\*@(=?)[\s\S]+?\*\/)|^)([\s\S]*?)(?=\/\*@|$)/gi,
+					replace: /\/\*@=?\s*([\s\S]*?)\s*\*\//
 				};
 			case 'html':
 			case 'php':
 			default:
 				// <!--@ preprocess statement -->
 				return {
-					search:  /(?:(<\!--@[\s\S]+?-->)|^)([\s\S]*?)(?=<\!--@|$)/gi,
-					replace: /<\!--@\s*([\s\S]*?)\s*-->/
+					search:  /(?:(<\!--@(=?)[\s\S]+?-->)|^)([\s\S]*?)(?=<\!--@|$)/gi,
+					replace: /<\!--@=?\s*([\s\S]*?)\s*-->/
 				};
 		}
 	},

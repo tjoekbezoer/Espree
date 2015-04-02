@@ -1,6 +1,7 @@
 
-var fs = require('fs')
-  , path = require('path');
+var fs   = require('fs')
+  , path = require('path')
+  , glob = require('glob');
 
 var espree = {
 	result:     '',
@@ -43,29 +44,32 @@ var espree = {
 	
 	// Get file data, parse and execute. Is used recursively via `_executeCode`
 	// where parameter `fromFile` will be empty only on the initial call.
-	_include: function( fileName, vars, fileExt, fromFile, options ) {
-		fileName = path.resolve(
-			fromFile ? path.dirname(fromFile) : process.cwd(),
-			fileName
-		);
-		fileExt || (fileExt = path.extname(fileName).substr(1));
-		options || (options = {});
+	_include: function( pattern, vars, fileExt, fromFile, options ) {
+		var cwd     = fromFile ? path.dirname(fromFile) : process.cwd()
+		  , matches = glob.sync(pattern, {cwd: cwd})
+		  , result  = '';
 		
-		// Depending on the filetype, the preprocess comment format can differ.
-		var code = this._parseCode(fileName, fileExt, options);
+		matches.forEach(function( match ) {
+			var fileName = path.resolve(cwd, match);
+			
+			fileExt || (fileExt = path.extname(fileName).substr(1));
+			options || (options = {});
+			
+			// Depending on the filetype, the preprocess comment format can differ.
+			var code = this._parseCode(fileName, fileExt, options);
+			if( code.length ) {
+				this._testForCircularLoop(fileName);
+				result += this._executeCode(fileName, fileExt, vars, code);
+			}
+		}, this);
 		
-		if( code.length ) {
-			this._testForCircularLoop(fileName);
-			return this._executeCode(fileName, fileExt, vars, code);
-		} else {
-			return '';
-		}
+		return result;
 	},
-	// Transform code; all normal JavaScript code becomes print('code'), all
+	// Transform code; all normal code becomes print('code'), all
 	// preprocess statements become normal JavaScript.
 	_parseCode: function( fileName, fileExt, options ) {
 		var regex = this._getRegexesForFileType(fileExt)
-		  , data, match, statement, code = '';
+		  , code = '', data, match, statement;
 		
 		try {
 			data = fs.readFileSync(fileName, 'utf8');
@@ -107,8 +111,8 @@ var espree = {
 			code
 		).apply(null, values.concat(vars, include, print));
 		
-		function include(newFile, silent) {
-			result += espree._include(newFile, vars, fileExt, fileName, {
+		function include( pattern, silent ) {
+			result += espree._include(pattern, vars, fileExt, fileName, {
 				silent: !!silent
 			});
 		}

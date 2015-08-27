@@ -49,6 +49,10 @@ var espree = {
 		  , matches = glob.sync(pattern, {cwd: cwd})
 		  , result  = '';
 		
+		if( !glob.hasMagic(pattern) && !matches.length ) {
+			throw new Error('Could not find `'+pattern+'`');
+		}
+		
 		matches.forEach(function( match ) {
 			var fileName = path.resolve(cwd, match);
 			

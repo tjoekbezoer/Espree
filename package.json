@@ -1,0 +1,30 @@
+{
+  "name": "espree",
+  "version": "1.0.0",
+  "description": "Tiny preprocessor for Node.js with full JavaScript syntax support.",
+  "main": "espree.js",
+  "scripts": {
+    "test": "jake test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://tjoekbezoer@github.com/tjoekbezoer/Espree.git"
+  },
+  "keywords": [
+    "espree",
+    "preprocessor",
+    "precompiler",
+    "pre",
+    "processor",
+    "compiler"
+  ],
+  "author": "Daan Mortier",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tjoekbezoer/Espree/issues"
+  },
+  "homepage": "https://github.com/tjoekbezoer/Espree",
+  "dependencies": {
+    "glob": "^5.0.15"
+  }
+}
